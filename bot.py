@@ -1,30 +1,25 @@
 import discord
 from discord.ext import commands
-import asyncio
 import os
+import asyncio
 
-# ===== KEEP ALIVE (FOR RENDER FREE) =====
+# ===== KEEP ALIVE =====
 from flask import Flask
 from threading import Thread
 
 app = Flask('')
-
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Alive"
 
 def run():
     app.run(host='0.0.0.0', port=10000)
 
 def keep_alive():
-    t = Thread(target=run)
-    t.start()
+    Thread(target=run).start()
 
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
+# ===== BOT =====
+intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 config = {
@@ -34,62 +29,65 @@ config = {
     "LOG_CHANNEL_ID": None
 }
 
-
-# ================= CLAIM BUTTON =================
+# ================= CLAIM =================
 class ClaimView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.blurple)
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         staff_role = interaction.guild.get_role(config["STAFF_ROLE_ID"])
 
         if staff_role not in interaction.user.roles:
-            await interaction.response.send_message("❌ Only staff!", ephemeral=True)
+            await interaction.response.send_message("❌ Only staff", ephemeral=True)
             return
 
         await interaction.channel.edit(name=f"claimed-by-{interaction.user.name}")
 
-        button.label = f"Claimed by {interaction.user.name}"
-        button.disabled = True
+        embed = interaction.message.embeds[0]
+        embed.set_footer(text=f"Claimed by: {interaction.user.name}")
 
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message("✅ Ticket claimed!", ephemeral=True)
+        button.disabled = True
+        button.label = "Claimed"
+
+        await interaction.message.edit(embed=embed, view=self)
+        await interaction.response.send_message("✅ Claimed", ephemeral=True)
 
 
 # ================= MODAL =================
-class TicketModal(discord.ui.Modal, title="SAB Ticket Form"):
+class TicketModal(discord.ui.Modal, title="Trade Ticket Form"):
 
-    user_id = discord.ui.TextInput(label="Other Trader (mention or ID)")
-    trade = discord.ui.TextInput(label="What are you giving?", style=discord.TextStyle.paragraph)
-    tip = discord.ui.TextInput(label="Tip")
-
-    def __init__(self, category_name):
-        super().__init__()
-        self.category_name = category_name
+    other = discord.ui.TextInput(label="Other trader (username or ID)")
+    giving = discord.ui.TextInput(label="What are you giving?")
+    receiving = discord.ui.TextInput(label="What are you receiving?")
 
     async def on_submit(self, interaction: discord.Interaction):
 
-        if None in config.values():
-            await interaction.response.send_message("❌ Setup not done. Use /setpanel", ephemeral=True)
-            return
-
         guild = interaction.guild
-        category = guild.get_channel(config["CATEGORY_ID"])
+        user_input = self.other.value
 
-        val = self.user_id.value.replace("<@", "").replace(">", "").replace("!", "")
-        other_user = guild.get_member(int(val)) if val.isdigit() else None
+        other_user = None
+
+        if user_input.isdigit():
+            other_user = guild.get_member(int(user_input))
+        else:
+            for member in guild.members:
+                if member.name.lower() == user_input.lower():
+                    other_user = member
+                    break
 
         if not other_user:
-            await interaction.response.send_message("❌ Invalid user", ephemeral=True)
+            await interaction.response.send_message("❌ User not found", ephemeral=True)
             return
+
+        category = guild.get_channel(config["CATEGORY_ID"])
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            other_user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.get_role(config["STAFF_ROLE_ID"]): discord.PermissionOverwrite(view_channel=True, send_messages=True)
+            interaction.user: discord.PermissionOverwrite(view_channel=True),
+            other_user: discord.PermissionOverwrite(view_channel=True),
+            guild.get_role(config["STAFF_ROLE_ID"]): discord.PermissionOverwrite(view_channel=True)
         }
 
         channel = await guild.create_text_channel(
@@ -98,11 +96,11 @@ class TicketModal(discord.ui.Modal, title="SAB Ticket Form"):
             overwrites=overwrites
         )
 
-        embed = discord.Embed(title="📩 SAB TICKET", color=0x2ecc71)
+        embed = discord.Embed(title="📩 New Trade Ticket", color=0xff9900)
         embed.add_field(name="Creator", value=interaction.user.mention, inline=False)
         embed.add_field(name="Other Trader", value=other_user.mention, inline=False)
-        embed.add_field(name="Giving", value=self.trade.value, inline=True)
-        embed.add_field(name="Tip", value=self.tip.value, inline=True)
+        embed.add_field(name="Giving", value=self.giving.value, inline=True)
+        embed.add_field(name="Receiving", value=self.receiving.value, inline=True)
         embed.set_footer(text="⏳ Waiting for middleman...")
 
         await channel.send(
@@ -113,29 +111,9 @@ class TicketModal(discord.ui.Modal, title="SAB Ticket Form"):
 
         await interaction.response.send_message(f"✅ Ticket created: {channel.mention}", ephemeral=True)
 
-        await asyncio.sleep(6000)
-
-        if channel:
-            log_channel = guild.get_channel(config["LOG_CHANNEL_ID"])
-
-            messages = []
-            async for msg in channel.history(limit=100):
-                messages.append(f"{msg.author}: {msg.content}")
-
-            transcript = "\n".join(messages)
-
-            if log_channel:
-                file = discord.File(
-                    fp=bytes(transcript, "utf-8"),
-                    filename=f"{channel.name}.txt"
-                )
-                await log_channel.send(f"📁 Closed: {channel.name}", file=file)
-
-            await channel.delete()
-
 
 # ================= DROPDOWN =================
-class TicketDropdown(discord.ui.Select):
+class Dropdown(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Blox Fruits"),
@@ -143,87 +121,121 @@ class TicketDropdown(discord.ui.Select):
             discord.SelectOption(label="Escape Tsunami"),
             discord.SelectOption(label="Other"),
         ]
-        super().__init__(placeholder="Select ticket type...", options=options)
+        super().__init__(placeholder="Select ticket type", options=options)
 
     async def callback(self, interaction: discord.Interaction):
 
         role = interaction.guild.get_role(config["ALLOWED_ROLE_ID"])
 
-        if role not in interaction.user.roles:
+        if role and role not in interaction.user.roles:
             await interaction.response.send_message("❌ Not allowed", ephemeral=True)
             return
 
-        await interaction.response.send_modal(TicketModal(self.values[0]))
+        await interaction.response.send_modal(TicketModal())
 
 
-# ================= VIEW =================
-class TicketView(discord.ui.View):
+class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(TicketDropdown())
+        self.add_item(Dropdown())
 
 
-# ================= SLASH =================
-@bot.tree.command(name="setpanel")
-async def setpanel(interaction: discord.Interaction,
-                   category: discord.CategoryChannel,
-                   staff_role: discord.Role,
-                   allowed_role: discord.Role,
-                   log_channel: discord.TextChannel):
+# ================= COMMANDS =================
 
-    config["CATEGORY_ID"] = category.id
-    config["STAFF_ROLE_ID"] = staff_role.id
-    config["ALLOWED_ROLE_ID"] = allowed_role.id
-    config["LOG_CHANNEL_ID"] = log_channel.id
-
-    await interaction.response.send_message("✅ Setup complete!", ephemeral=True)
-
-
-# ================= PANEL =================
+# PANEL
 @bot.command()
 async def panel(ctx):
     embed = discord.Embed(
         title="🎫 Middleman Ticket Panel",
-        description=(
-            "Need a trusted middleman for your trade or deal?\n"
-            "Open a ticket below and our verified Middlemen will assist you safely and quickly.\n\n"
-        ),
-        color=0xff6600  # 🔥 ORANGE COLOR (change if you want)
+        description="Click below to open a ticket",
+        color=0xff6600
     )
 
-    embed.add_field(
-        name="📜 Rules before opening a ticket:",
-        value=(
-            "• Do not ping or DM staff or middlemen directly.\n"
-            "• Open **one ticket at a time** for each deal.\n"
-            "• Provide clear proof and details of your trade.\n"
-            "• Any attempt to scam or waste time will result in a ban."
-        ),
-        inline=False
-    )
+    embed.set_image(url="https://cdn.discordapp.com/attachments/1457964741745180785/1491392888469454879/file_00000000f0607208b08ba98abf46985f.png")
 
-    embed.add_field(
-        name="👇 Open Ticket",
-        value="Click the dropdown below to open a ticket!",
-        inline=False
-    )
+    await ctx.send(embed=embed, view=PanelView())
 
-    embed.add_field(
-        name="🎯 Guarantee",
-        value="We ensure safe, fast, and verified transactions for everyone.",
-        inline=False
-    )
 
-    # 🔥 CHANGE THIS IMAGE
-    embed.set_image(url="https://cdn.discordapp.com/attachments/1457964741745180785/1491392888469454879/file_00000000f0607208b08ba98abf46985f.png?ex=69e9539d&is=69e8021d&hm=a02bcadef411a89085b965513cbc519e46e6953f38f56a7aea5d177834febe00&")
+# SET CATEGORY
+@bot.command()
+async def category(ctx, category_id: int):
+    config["CATEGORY_ID"] = category_id
+    await ctx.send("✅ Category set")
 
-    # OPTIONAL: small icon top right
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1457964741745180785/1491392888469454879/file_00000000f0607208b08ba98abf46985f.png?ex=69e9539d&is=69e8021d&hm=a02bcadef411a89085b965513cbc519e46e6953f38f56a7aea5d177834febe00&")
 
-    embed.set_footer(text="Trusted Middleman Service • Stay Safe")
+# SET ROLES
+@bot.command()
+async def supportedrole(ctx, role_id: int):
+    config["ALLOWED_ROLE_ID"] = role_id
+    await ctx.send("✅ Supported role set")
 
-    await ctx.send(embed=embed, view=TicketView())
 
-# ===== START =====
+@bot.command()
+async def staffrole(ctx, role_id: int):
+    config["STAFF_ROLE_ID"] = role_id
+    await ctx.send("✅ Staff role set")
+
+
+# SET LOG
+@bot.command()
+async def log(ctx, channel_id: int):
+    config["LOG_CHANNEL_ID"] = channel_id
+    await ctx.send("✅ Log channel set")
+
+
+# HELP COMMAND
+@bot.command()
+async def help(ctx):
+    embed = discord.Embed(title="📖 Bot Commands", color=0x3498db)
+
+    embed.add_field(name="!panel", value="Send ticket panel", inline=False)
+    embed.add_field(name="!category <id>", value="Set ticket category", inline=False)
+    embed.add_field(name="!supportedrole <id>", value="Set allowed role", inline=False)
+    embed.add_field(name="!staffrole <id>", value="Set staff role", inline=False)
+    embed.add_field(name="!log <id>", value="Set log channel", inline=False)
+    embed.add_field(name="/closeticket", value="Close ticket (staff only)", inline=False)
+
+    await ctx.send(embed=embed)
+
+
+# CLOSE
+@bot.tree.command(name="closeticket")
+async def closeticket(interaction: discord.Interaction):
+
+    staff_role = interaction.guild.get_role(config["STAFF_ROLE_ID"])
+
+    if staff_role not in interaction.user.roles:
+        await interaction.response.send_message("❌ Only staff", ephemeral=True)
+        return
+
+    await interaction.response.send_message("🔒 Closing...", ephemeral=True)
+
+    messages = []
+    async for msg in interaction.channel.history(limit=200):
+        messages.append(f"{msg.author}: {msg.content}")
+
+    transcript = "\n".join(messages)
+
+    log_channel = interaction.guild.get_channel(config["LOG_CHANNEL_ID"])
+
+    if log_channel:
+        file = discord.File(
+            fp=bytes(transcript, "utf-8"),
+            filename=f"{interaction.channel.name}.txt"
+        )
+        await log_channel.send(f"📁 Ticket closed: {interaction.channel.name}", file=file)
+
+    await asyncio.sleep(2)
+    await interaction.channel.delete()
+
+
+# READY
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"Logged in as {bot.user}")
+
+
+# START
 keep_alive()
 bot.run(os.getenv("TOKEN"))
