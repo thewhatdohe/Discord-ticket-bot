@@ -187,30 +187,42 @@ async def panel(ctx):
         description=(
             "Need a trusted middleman for your trade or deal?\n"
             "Open a ticket below and our verified Middlemen will assist you safely and quickly.\n\n"
+        ),
+        color=0xff6600  # 🔥 ORANGE COLOR (change if you want)
+    )
 
-            "**📜 Rules before opening a ticket:**\n"
+    embed.add_field(
+        name="📜 Rules before opening a ticket:",
+        value=(
             "• Do not ping or DM staff or middlemen directly.\n"
             "• Open **one ticket at a time** for each deal.\n"
             "• Provide clear proof and details of your trade.\n"
-            "• Any attempt to scam or waste time will result in a ban.\n\n"
-
-            "**Click the button below to open a ticket!**\n\n"
-            "🎯 We ensure safe, fast, and verified transactions for everyone."
+            "• Any attempt to scam or waste time will result in a ban."
         ),
-        color=0x2b2d31
+        inline=False
     )
 
-    # 🔥 CHANGE THIS IMAGE LINK
+    embed.add_field(
+        name="👇 Open Ticket",
+        value="Click the dropdown below to open a ticket!",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎯 Guarantee",
+        value="We ensure safe, fast, and verified transactions for everyone.",
+        inline=False
+    )
+
+    # 🔥 CHANGE THIS IMAGE
     embed.set_image(url="https://cdn.discordapp.com/attachments/1457964741745180785/1491392888469454879/file_00000000f0607208b08ba98abf46985f.png?ex=69e9539d&is=69e8021d&hm=a02bcadef411a89085b965513cbc519e46e6953f38f56a7aea5d177834febe00&")
 
+    # OPTIONAL: small icon top right
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1457964741745180785/1491392888469454879/file_00000000f0607208b08ba98abf46985f.png?ex=69e9539d&is=69e8021d&hm=a02bcadef411a89085b965513cbc519e46e6953f38f56a7aea5d177834febe00&")
+
+    embed.set_footer(text="Trusted Middleman Service • Stay Safe")
+
     await ctx.send(embed=embed, view=TicketView())
-
-
-@bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print(f"Logged in as {bot.user}")
-
 
 # ===== START =====
 keep_alive()
